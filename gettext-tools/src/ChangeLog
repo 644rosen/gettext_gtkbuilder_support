@@ -1,3 +1,11 @@
+2013-01-31  Miguel Angel Arruga Vivas  <rosen644835@gmail.com>
+
+	* x-glade.c (element_state): New field extract_context.
+	(start_element_handler): Set p->extract_context.
+	(get_glade_shapes): New function. Set fields in callshapes.
+	(end_element_handler): Use 'get_glade_shapes' and
+	'arglist_parser_*' family functions to remember the message.
+
 2013-02-25  Daiki Ueno  <ueno@gnu.org>
 
 	* Makefile.am (libgettextsrc_la_CPPFLAGS): Define to specify Woe32

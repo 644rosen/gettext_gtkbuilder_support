@@ -1,5 +1,5 @@
 /* xgettext glade backend.
-   Copyright (C) 2002-2003, 2005-2009 Free Software Foundation, Inc.
+   Copyright (C) 2002-2003, 2005-2009, 2013 Free Software Foundation, Inc.
 
    This file was written by Bruno Haible <haible@clisp.cons.org>, 2002.
 
@@ -385,6 +385,7 @@ static XML_Parser parser;
 struct element_state
 {
   bool extract_string;
+  bool extract_context;
   char *extracted_comment;
   int lineno;
   char *buffer;
@@ -428,6 +429,7 @@ start_element_handler (void *userData, const char *name,
 
   p = &stack[stack_depth];
   p->extract_string = extract_all;
+  p->extract_context = false;
   p->extracted_comment = NULL;
   /* In Glade 1, a few specific elements are translatable.  */
   if (!p->extract_string)
@@ -443,6 +445,7 @@ start_element_handler (void *userData, const char *name,
       && (strcmp (name, "property") == 0 || strcmp (name, "atkproperty") == 0))
     {
       bool has_translatable = false;
+      bool has_context = false; // Default is 'no'
       const char *extracted_comment = NULL;
       const char **attp = attributes;
       while (*attp != NULL)
@@ -451,9 +454,12 @@ start_element_handler (void *userData, const char *name,
             has_translatable = (strcmp (attp[1], "yes") == 0);
           else if (strcmp (attp[0], "comments") == 0)
             extracted_comment = attp[1];
+          else if (strcmp (attp[0], "context") == 0)
+            has_context = (strcmp (attp[1], "yes") == 0);
           attp += 2;
         }
       p->extract_string = has_translatable;
+      p->extract_context = has_context;
       p->extracted_comment =
         (has_translatable && extracted_comment != NULL
          ? xstrdup (extracted_comment)
@@ -491,6 +497,38 @@ start_element_handler (void *userData, const char *name,
     savable_comment_reset ();
 }
 
+/* Used for Glade2 context extraction.  */
+#define MSGID_ARGNUM 1
+
+/* Returns a pointer to a static callshapes prepared to extract or not
+   glib syntax strings.
+   TAG: Keyword to set. Must not be NULL.
+   EXTRACT_CONTEXT: true for strings with glib msgctxt syntax
+   (Glade2 with attribute context="yes").  */
+static const struct callshapes *
+get_glade_shapes (const char *tag, bool extract_context)
+{
+  static struct callshapes glade_shapes;
+  static bool initialized = false;
+  if (!initialized)
+    {
+      glade_shapes.nshapes = 1;
+      glade_shapes.shapes[0].argnum1 = MSGID_ARGNUM;
+      glade_shapes.shapes[0].argnum2 = 0;
+      glade_shapes.shapes[0].argnumc = 0;
+      glade_shapes.shapes[0].argnum2_glib_context = false;
+      glade_shapes.shapes[0].argtotal = 1;
+      string_list_init (&glade_shapes.shapes[0].xcomments);
+      initialized = true;
+    }
+  glade_shapes.keyword = tag;
+  glade_shapes.keyword_len = strlen (tag) - 1; /* Not-NUL terminated.  */
+  glade_shapes.shapes[0].argnum1_glib_context = extract_context;
+
+  return &glade_shapes;
+}
+
+
 /* Callback called when </element> is seen.  */
 static void
 end_element_handler (void *userData, const char *name)
@@ -503,17 +541,21 @@ end_element_handler (void *userData, const char *name)
       /* Don't extract the empty string.  */
       if (p->buflen > 0)
         {
-          lex_pos_ty pos;
-
           if (p->buflen == p->bufmax)
             p->buffer = (char *) xrealloc (p->buffer, p->buflen + 1);
           p->buffer[p->buflen] = '\0';
 
-          pos.file_name = logical_file_name;
-          pos.line_number = p->lineno;
-
-          remember_a_message (mlp, NULL, p->buffer, null_context, &pos,
-                              p->extracted_comment, savable_comment);
+          /* Create the arglist_parser for glade.  */
+          struct arglist_parser * ap =
+            arglist_parser_alloc (mlp, get_glade_shapes (name,
+                                                         p->extract_context));
+          arglist_parser_remember (ap, MSGID_ARGNUM, p->buffer,
+                                   null_context, logical_file_name,
+                                   p->lineno, savable_comment);
+          if (p->extracted_comment != NULL)
+            string_list_append (&ap->alternative[0].xcomments,
+                                p->extracted_comment);
+          arglist_parser_done (ap, MSGID_ARGNUM);
           p->buffer = NULL;
         }
     }
