@@ -1,3 +1,12 @@
+2013-01-31  Miguel Angel Arruga Vivas  <rosen644835@gmail.com>
+
+	* xgettext.c (arglist_parser_remember): Store copies of string.
+	Always release string.
+	(arglist_parser_done): Fix leaks on glib syntax string extraction.
+	Change pointer comparison to strcmp.
+	Set NULL strings passed to remember_a_message{,_plural}.
+	Free all strings.
+
 2013-02-25  Daiki Ueno  <ueno@gnu.org>
 
 	* Makefile.am (libgettextsrc_la_CPPFLAGS): Define to specify Woe32

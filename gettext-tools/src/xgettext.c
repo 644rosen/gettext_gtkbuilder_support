@@ -1,5 +1,5 @@
 /* Extracts strings from C source file to Uniforum style .po file.
-   Copyright (C) 1995-1998, 2000-2012 Free Software Foundation, Inc.
+   Copyright (C) 1995-1998, 2000-2013 Free Software Foundation, Inc.
    Written by Ulrich Drepper <drepper@gnu.ai.mit.edu>, April 1995.
 
    This program is free software: you can redistribute it and/or modify
@@ -2627,7 +2627,6 @@ arglist_parser_remember (struct arglist_parser *ap,
                          char *file_name, size_t line_number,
                          refcounted_string_list_ty *comment)
 {
-  bool stored_string = false;
   size_t nalternatives = ap->nalternatives;
   size_t i;
 
@@ -2639,10 +2638,11 @@ arglist_parser_remember (struct arglist_parser *ap,
 
       if (argnum == cp->argnumc)
         {
-          cp->msgctxt = string;
+          if (cp->msgctxt != NULL)
+            free (cp->msgctxt);
+          cp->msgctxt = xstrdup (string);
           cp->msgctxt_pos.file_name = file_name;
           cp->msgctxt_pos.line_number = line_number;
-          stored_string = true;
           /* Mark msgctxt as done.  */
           cp->argnumc = 0;
         }
@@ -2650,31 +2650,32 @@ arglist_parser_remember (struct arglist_parser *ap,
         {
           if (argnum == cp->argnum1)
             {
-              cp->msgid = string;
+              if (cp->msgid != NULL)
+                free (cp->msgid);
+              cp->msgid = xstrdup (string);
               cp->msgid_context = context;
               cp->msgid_pos.file_name = file_name;
               cp->msgid_pos.line_number = line_number;
               cp->msgid_comment = add_reference (comment);
-              stored_string = true;
               /* Mark msgid as done.  */
               cp->argnum1 = 0;
             }
           if (argnum == cp->argnum2)
             {
-              cp->msgid_plural = string;
+              if (cp->msgid_plural != NULL)
+                free (cp->msgid_plural);
+              cp->msgid_plural = xstrdup (string);
               cp->msgid_plural_context = context;
               cp->msgid_plural_pos.file_name = file_name;
               cp->msgid_plural_pos.line_number = line_number;
-              stored_string = true;
               /* Mark msgid_plural as done.  */
               cp->argnum2 = 0;
             }
         }
     }
-  /* Note: There is a memory leak here: When string was stored but is later
-     not used by arglist_parser_done, we don't free it.  */
-  if (!stored_string)
-    free (string);
+  /* Note: There was a memory leak here: When string was stored but is later
+     not used by arglist_parser_done, we didn't free it.  */
+  free (string);
 }
 
 
@@ -2867,11 +2868,14 @@ arglist_parser_done (struct arglist_parser *ap, int argnum)
                 {
                   size_t ctxt_len = separator - best_cp->msgid;
                   char *ctxt = XNMALLOC (ctxt_len + 1, char);
+                  /* This pointer was leaked.  */
+                  char *msgid = best_cp->msgid;
 
                   memcpy (ctxt, best_cp->msgid, ctxt_len);
                   ctxt[ctxt_len] = '\0';
                   best_cp->msgctxt = ctxt;
                   best_cp->msgid = xstrdup (separator + 1);
+                  free (msgid);
                 }
             }
           if (best_cp->msgid_plural != NULL && best_cp->argnum2_glib_context)
@@ -2892,6 +2896,8 @@ arglist_parser_done (struct arglist_parser *ap, int argnum)
                 {
                   size_t ctxt_len = separator - best_cp->msgid_plural;
                   char *ctxt = XNMALLOC (ctxt_len + 1, char);
+                  /* This pointer was leaked.  */
+                  char * msgid_plural = best_cp->msgid_plural;
 
                   memcpy (ctxt, best_cp->msgid_plural, ctxt_len);
                   ctxt[ctxt_len] = '\0';
@@ -2911,6 +2917,7 @@ arglist_parser_done (struct arglist_parser *ap, int argnum)
                       free (ctxt);
                     }
                   best_cp->msgid_plural = xstrdup (separator + 1);
+                  free (msgid_plural);
                 }
             }
 
@@ -2924,7 +2931,9 @@ arglist_parser_done (struct arglist_parser *ap, int argnum)
                qt-plural-format.  */
             if (recognize_format_qt
                 && current_formatstring_parser3 == &formatstring_qt_plural
-                && best_cp->msgid_plural == best_cp->msgid)
+                && best_cp->msgid_plural != NULL
+                && best_cp->msgid != NULL
+                && (strcmp (best_cp->msgid_plural, best_cp->msgid) == 0))
               {
                 msgid_context.is_format3 = yes_according_to_context;
                 msgid_plural_context.is_format3 = yes_according_to_context;
@@ -2934,11 +2943,18 @@ arglist_parser_done (struct arglist_parser *ap, int argnum)
                                      msgid_context,
                                      &best_cp->msgid_pos,
                                      NULL, best_cp->msgid_comment);
+            /* These strings are unowned now.  */
+            best_cp->msgctxt = NULL;
+            best_cp->msgid = NULL;
             if (mp != NULL && best_cp->msgid_plural != NULL)
-              remember_a_message_plural (mp, best_cp->msgid_plural,
-                                         msgid_plural_context,
-                                         &best_cp->msgid_plural_pos,
-                                         NULL);
+              {
+                remember_a_message_plural (mp, best_cp->msgid_plural,
+                                           msgid_plural_context,
+                                           &best_cp->msgid_plural_pos,
+                                           NULL);
+                /* This string is unowned now.  */
+                best_cp->msgid_plural = NULL;
+              }
           }
 
           if (best_cp->xcomments.nitems > 0)
@@ -2969,25 +2985,19 @@ arglist_parser_done (struct arglist_parser *ap, int argnum)
             }
         }
     }
-  else
-    {
-      /* No complete call was parsed.  */
-      /* Note: There is a memory leak here: When there is more than one
+      /* Note: There was a memory leak here: When there is more than one
          alternative, the same string can be stored in multiple alternatives,
          and it's not easy to free all strings reliably.  */
-      if (ap->nalternatives == 1)
-        {
-          if (ap->alternative[0].msgctxt != NULL)
-            free (ap->alternative[0].msgctxt);
-          if (ap->alternative[0].msgid != NULL)
-            free (ap->alternative[0].msgid);
-          if (ap->alternative[0].msgid_plural != NULL)
-            free (ap->alternative[0].msgid_plural);
-        }
-    }
-
   for (i = 0; i < ap->nalternatives; i++)
-    drop_reference (ap->alternative[i].msgid_comment);
+    {
+      if (ap->alternative[i].msgctxt != NULL)
+        free (ap->alternative[i].msgctxt);
+      if (ap->alternative[i].msgid != NULL)
+        free (ap->alternative[i].msgid);
+      if (ap->alternative[i].msgid_plural != NULL)
+        free (ap->alternative[i].msgid_plural);
+      drop_reference (ap->alternative[i].msgid_comment);
+    }
   free (ap);
 }
 
