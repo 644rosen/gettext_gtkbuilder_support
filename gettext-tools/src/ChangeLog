@@ -3,6 +3,35 @@
 	* Makefile.am (libgettextsrc_la_CPPFLAGS): Define to specify Woe32
 	DLL export flags.
 
+2013-02-17  Miguel Angel Arruga Vivas  <rosen644835@gmail.com>
+
+	Add support for Unicode escaped sequences in x-c.c based in
+	x-java.c Unicode support.
+	* x-c.c (po-charset.h): Included for 'po_charset_utf8'.
+	(unistr.h): Included for 'ucs4_t'.
+	(comment_line_end): Store comments in UTF-8.
+	(phase3_pushback): Extended to 10 characters of pushback, needed for
+	unicode escaped sequences.
+	(check_unicode_codepoint): New function.
+	(P7_UNICODE4): New macro.
+	(P7_UNICODE8): Likewise.
+	(phase7_getc): Add new case for 'u'/'U'.
+	(extract_unicode_codepoint): New function.
+	(mixed_string_buffer): New struct. Code from x-python.c without
+	UTF-16 surrogates support.
+	(mixed_string_buffer_init): New function. Code from x-python.c
+	without UTF-16 surrogates support.
+	(mixed_string_buffer_free): Likewise.
+	(mixed_string_buffer_append_byte): Likewise.
+	(mixed_string_buffer_append_unicode_grow): Likewise.
+	(mixed_string_buffer_append_flush): Likewise.
+	(mixed_string_buffer_append_unicode): Likewise.
+	(mixed_string_buffer_append): Likewise.
+	(mixed_string_buffer_result): Likewise.
+	(phase5_get): Store UTF-8 string literals and identifiers.
+	(extract_parenthesized): Change 'xgettext_current_source_encoding'
+	to 'po_charset_utf8'.
+
 2013-01-09  Andreas Stricker  <astricker@futurelab.ch>  (tiny change)
 
 	* po-xerror.c: Include error.h for error_message_count.

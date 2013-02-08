@@ -36,6 +36,8 @@
 #include "xalloc.h"
 #include "xvasprintf.h"
 #include "hash.h"
+#include "po-charset.h"
+#include "unistr.h"
 #include "gettext.h"
 
 #define _(s) gettext(s)
@@ -648,7 +650,7 @@ phase2_ungetc (int c)
    line.  Basically, all you need to do is elide "\\\n" sequences from
    the input.  */
 
-static unsigned char phase3_pushback[2];
+static unsigned char phase3_pushback[10];
 static int phase3_pushback_length;
 
 
@@ -672,7 +674,7 @@ phase3_getc ()
 }
 
 
-/* Supports 2 characters of pushback.  */
+/* Supports 10 characters of pushback.  */
 static void
 phase3_ungetc (int c)
 {
@@ -711,6 +713,7 @@ comment_add (int c)
 static inline void
 comment_line_end (size_t chars_to_remove)
 {
+  char *utf8_buffer;
   buflen -= chars_to_remove;
   while (buflen >= 1
          && (buffer[buflen - 1] == ' ' || buffer[buflen - 1] == '\t'))
@@ -721,7 +724,11 @@ comment_line_end (size_t chars_to_remove)
       buffer = xrealloc (buffer, bufmax);
     }
   buffer[buflen] = '\0';
-  savable_comment_add (buffer);
+  utf8_buffer = from_current_source_encoding (buffer, lc_comment,
+                                              logical_file_name, line_number);
+  savable_comment_add (utf8_buffer);
+  if (utf8_buffer != buffer)
+    free (utf8_buffer);
 }
 
 
@@ -857,6 +864,44 @@ struct token_ty
   int line_number;
 };
 
+/* Check the number of digits of an escaped unicode codepoint.
+   FOUR_DIGITS: True when it is '\u' escaped sequence.  */
+static bool
+check_unicode_codepoint (bool four_digits)
+{
+  int stored[8];
+  int i, j, n;
+
+  for (i = 0; i < 8; ++i)
+    {
+      if (four_digits && (i < 4))
+        stored[i] = 0;
+      else
+        {
+          stored[i] = phase3_getc ();
+          switch (stored[i])
+            {
+            default:
+              /* Fallback.  */
+              n = four_digits ? 4 : 0;
+              for (j = i; j >= n; --j)
+                phase3_ungetc (stored[j]);
+              return false;
+
+            case '0': case '1': case '2': case '3': case '4':
+            case '5': case '6': case '7': case '8': case '9':
+            case 'A': case 'B': case 'C': case 'D': case 'E': case 'F':
+            case 'a': case 'b': case 'c': case 'd': case 'e': case 'f':
+              break;
+            }
+        }
+    }
+  
+  n = four_digits ? 4 : 0;
+  for (j = 7; j >= n; --j)
+    phase3_ungetc (stored[j]);
+  return true;
+}
 
 /* 7. Replace escape sequences within character strings with their
    single character equivalents.  This is called from phase 5, because
@@ -867,6 +912,8 @@ struct token_ty
 #define P7_QUOTES (1000 + '"')
 #define P7_QUOTE (1000 + '\'')
 #define P7_NEWLINE (1000 + '\n')
+#define P7_UNICODE4 (1000 + 'u')
+#define P7_UNICODE8 (1000 + 'U')
 
 static int
 phase7_getc ()
@@ -998,6 +1045,18 @@ phase7_getc ()
         }
       phase3_ungetc (c);
       return n;
+
+    /* Unicode support.  */
+    case 'u':case 'U':
+      if (!check_unicode_codepoint (c == 'u'))
+        {
+          phase3_ungetc (c);
+          return '\\';
+        }
+      else if (c == 'u')
+        return P7_UNICODE4;
+      else
+        return P7_UNICODE8;
     }
 }
 
@@ -1020,6 +1079,218 @@ free_token (token_ty *tp)
     drop_reference (tp->comment);
 }
 
+/* Unicode support.  */
+
+static ucs4_t
+extract_unicode_codepoint (bool four_digits)
+{
+  int stored[8];
+  int i;
+  ucs4_t uc = 0;
+
+  for (i = 0; i < 8; i++)
+    {
+      if (four_digits && (i < 4))
+        stored[i] = 0;
+      else
+        {
+          stored[i] = phase3_getc ();
+          switch (stored[i])
+            {
+            default:
+              /* This should be called pointing to a valid unicode
+                 escaped sequence.  */
+              abort ();
+              return 0;
+
+            case '0': case '1': case '2': case '3': case '4':
+            case '5': case '6': case '7': case '8': case '9':
+              uc = uc * 16 + stored[i] - '0';
+              break;
+
+            case 'A': case 'B': case 'C': case 'D': case 'E': case 'F':
+              uc = uc * 16 + 10 + stored[i] - 'A';
+              break;
+
+            case 'a': case 'b': case 'c': case 'd': case 'e': case 'f':
+              uc = uc * 16 + 10 + stored[i] - 'a';
+              break;
+            }
+        }
+    }
+  return uc;
+}
+
+/* A string buffer type that allows appending bytes (in the
+   xgettext_current_source_encoding) or Unicode characters.
+   Returns the entire string in UTF-8 encoding.  */
+struct mixed_string_buffer
+{
+  /* The part of the string in local encoding.  */
+  char *buffer;
+  size_t bufmax;
+  size_t buflen;
+  /* The part of the string converted to UTF-8.  */
+  char *utf8_buffer;
+  size_t utf8_bufmax;
+  size_t utf8_buflen;
+  /* The lexical context.  Used only for error message purposes.  */
+  lexical_context_ty lcontext;
+};
+
+/* Initialize a 'struct mixed_string_buffer' to empty.  */
+static void
+mixed_string_buffer_init (struct mixed_string_buffer *bp,
+                          lexical_context_ty lcontext)
+{
+  bp->buffer = NULL;
+  bp->bufmax = 0;
+  bp->buflen = 0;
+  bp->utf8_buffer = NULL;
+  bp->utf8_bufmax = 0;
+  bp->utf8_buflen = 0;
+  bp->lcontext = lcontext;
+}
+
+/* Destroy the content of a 'struct mixed_string_buffer'.  */
+static void
+mixed_string_buffer_free (struct mixed_string_buffer *bp)
+{
+  if (bp->buffer != NULL)
+    free (bp->buffer);
+  if (bp->utf8_buffer != NULL)
+    free (bp->utf8_buffer);
+  bp->buffer = NULL;
+  bp->utf8_buffer = NULL;
+}
+
+/* Auxiliary function: Append a byte to bp->buffer.  */
+static void
+mixed_string_buffer_append_byte (struct mixed_string_buffer *bp, int c)
+{
+  if (bp->buflen == bp->bufmax)
+    {
+      bp->bufmax = 2 * bp->bufmax + 10;
+      bp->buffer = xrealloc (bp->buffer, bp->bufmax);
+    }
+  bp->buffer[bp->buflen++] = c;
+}
+
+
+/* Auxiliary function: Ensure count more bytes are available in bp->utf8.  */
+static inline void
+mixed_string_buffer_append_unicode_grow (struct mixed_string_buffer *bp,
+                                         size_t count)
+{
+  if (bp->utf8_buflen + count > bp->utf8_bufmax)
+    {
+      size_t new_allocated = 2 * bp->utf8_bufmax + 10;
+      if (new_allocated < bp->utf8_buflen + count)
+        new_allocated = bp->utf8_buflen + count;
+      bp->utf8_bufmax = new_allocated;
+      bp->utf8_buffer = xrealloc (bp->utf8_buffer, new_allocated);
+    }
+}
+
+/* Auxiliary function: Flush bp->buffer into bp->utf8_buffer.  */
+static inline void
+mixed_string_buffer_flush (struct mixed_string_buffer *bp,
+                           int lineno)
+{
+  if (bp->buflen > 0)
+    {
+      char *curr;
+      size_t count;
+
+      mixed_string_buffer_append_byte (bp, '\0');
+
+      /* Convert from the source encoding to UTF-8.  */
+      curr = from_current_source_encoding (bp->buffer, bp->lcontext,
+                                           logical_file_name, lineno);
+
+      /* Append it to bp->utf8_buffer.  */
+      count = strlen (curr);
+      mixed_string_buffer_append_unicode_grow (bp, count);
+      memcpy (bp->utf8_buffer + bp->utf8_buflen, curr, count);
+      bp->utf8_buflen += count;
+
+      if (curr != bp->buffer)
+        free (curr);
+      bp->buflen = 0;
+    }
+}
+
+/* Auxiliary function: Append a Unicode character to bp->utf8.
+   uc must be < 0x110000.  */
+static void
+mixed_string_buffer_append_unicode (struct mixed_string_buffer *bp, ucs4_t uc)
+{
+  unsigned char utf8buf[6];
+  int count = u8_uctomb (utf8buf, uc, 6);
+
+  if (count < 0)
+    /* The caller should have ensured that uc is not out-of-range.  */
+    abort ();
+
+  mixed_string_buffer_append_unicode_grow (bp, count);
+  memcpy (bp->utf8_buffer + bp->utf8_buflen, utf8buf, count);
+  bp->utf8_buflen += count;
+}
+
+/* Append a character or Unicode character to a 'struct mixed_string_buffer'.  */
+static void
+mixed_string_buffer_append (struct mixed_string_buffer *bp, int c)
+{
+  if (c == P7_UNICODE4 || c == P7_UNICODE8)
+    {
+      /* Append a Unicode character.  */
+      ucs4_t uc = extract_unicode_codepoint (c == P7_UNICODE4);
+      /* Switch from multibyte character mode to Unicode character mode.  */
+      mixed_string_buffer_flush (bp, line_number);
+
+      if (uc >= 0x110000
+          || (uc > 0 && uc < 0x20)
+          || (uc < 0xa0 && uc >= 0x7f)
+          || (uc < 0xe000 && uc >= 0xd800))
+        {
+          /* GCC will not compile this source file.
+             Any reason to actually extract this string?  */
+          error_with_progname = false;
+          error (0, 0, _("%s:%d: warning: invalid universal character"),
+                 logical_file_name, line_number - 1);
+          error_with_progname = true;
+          mixed_string_buffer_append_unicode (bp, 0xfffd);
+        }
+      else
+        mixed_string_buffer_append_unicode (bp, uc);
+    }
+  else
+    {
+      /* Append a single byte.  */
+
+      /* When a newline is seen, convert the accumulated multibyte sequence.
+         This ensures a correct line number in the error message in case of
+         a conversion error.  The "- 1" is to account for the newline.  */
+      if (c == '\n')
+        mixed_string_buffer_flush (bp, line_number - 1);
+
+      mixed_string_buffer_append_byte (bp, c);
+    }
+}
+
+/* Return the string buffer's contents.  */
+static char *
+mixed_string_buffer_result (struct mixed_string_buffer *bp)
+{
+  /* Flush all into bp->utf8_buffer.  */
+  mixed_string_buffer_flush (bp, line_number);
+  /* NUL-terminate it.  */
+  mixed_string_buffer_append_unicode_grow (bp, 1);
+  bp->utf8_buffer[bp->utf8_buflen] = '\0';
+  /* Return it.  */
+  return bp->utf8_buffer;
+}
+
 
 /* 5. Parse each resulting logical line as preprocessing tokens and
    white space.  Preprocessing tokens and C tokens don't always match.  */
@@ -1033,6 +1304,7 @@ phase5_get (token_ty *tp)
 {
   static char *buffer;
   static int bufmax;
+  struct mixed_string_buffer msbuffer;
   int bufpos;
   int c;
 
@@ -1086,15 +1358,11 @@ phase5_get (token_ty *tp)
     case 'h': case 'i': case 'j': case 'k': case 'l': case 'm': case 'n':
     case 'o': case 'p': case 'q': case 'r': case 's': case 't': case 'u':
     case 'v': case 'w': case 'x': case 'y': case 'z':
-      bufpos = 0;
+      /* FIXME: \uXXXX or \UXXXXXXXX are valid in the identifier.  */
+      mixed_string_buffer_init (&msbuffer, lc_outside);
       for (;;)
         {
-          if (bufpos >= bufmax)
-            {
-              bufmax = 2 * bufmax + 10;
-              buffer = xrealloc (buffer, bufmax);
-            }
-          buffer[bufpos++] = c;
+          mixed_string_buffer_append (&msbuffer, c);
           c = phase4_getc ();
           switch (c)
             {
@@ -1119,14 +1387,9 @@ phase5_get (token_ty *tp)
             }
           break;
         }
-      if (bufpos >= bufmax)
-        {
-          bufmax = 2 * bufmax + 10;
-          buffer = xrealloc (buffer, bufmax);
-        }
-      buffer[bufpos] = 0;
-      tp->string = xstrdup (buffer);
+      tp->string = xstrdup (mixed_string_buffer_result (&msbuffer));
       tp->type = token_type_name;
+      mixed_string_buffer_free (&msbuffer);
       return;
 
     case '.':
@@ -1237,7 +1500,7 @@ phase5_get (token_ty *tp)
          but since gettext's argument is not a wide character string,
          let the compiler complain about the argument not matching the
          prototype.  Just pretend it won't happen.  */
-      bufpos = 0;
+      mixed_string_buffer_init (&msbuffer, lc_string);
       for (;;)
         {
           c = phase7_getc ();
@@ -1254,22 +1517,12 @@ phase5_get (token_ty *tp)
             break;
           if (c == P7_QUOTE)
             c = '\'';
-          if (bufpos >= bufmax)
-            {
-              bufmax = 2 * bufmax + 10;
-              buffer = xrealloc (buffer, bufmax);
-            }
-          buffer[bufpos++] = c;
+          mixed_string_buffer_append (&msbuffer, c);
         }
-      if (bufpos >= bufmax)
-        {
-          bufmax = 2 * bufmax + 10;
-          buffer = xrealloc (buffer, bufmax);
-        }
-      buffer[bufpos] = 0;
       tp->type = token_type_string_literal;
-      tp->string = xstrdup (buffer);
+      tp->string = xstrdup (mixed_string_buffer_result (&msbuffer));
       tp->comment = add_reference (savable_comment);
+      mixed_string_buffer_free (&msbuffer);
       return;
 
     case '(':
@@ -1843,7 +2096,10 @@ extract_parenthesized (message_list_ty *mlp,
                                      arglist_parser_alloc (mlp,
                                                            state ? next_shapes : NULL)))
             {
+              xgettext_current_source_encoding = po_charset_utf8;
               arglist_parser_done (argparser, arg);
+              xgettext_current_source_encoding =
+                xgettext_global_source_encoding;
               return true;
             }
           next_context_iter = null_context_list_iterator;
@@ -1852,7 +2108,9 @@ extract_parenthesized (message_list_ty *mlp,
           continue;
 
         case xgettext_token_type_rparen:
+          xgettext_current_source_encoding = po_charset_utf8;
           arglist_parser_done (argparser, arg);
+          xgettext_current_source_encoding = xgettext_global_source_encoding;
           return false;
 
         case xgettext_token_type_comma:
@@ -1886,6 +2144,7 @@ extract_parenthesized (message_list_ty *mlp,
           continue;
 
         case xgettext_token_type_string_literal:
+          xgettext_current_source_encoding = po_charset_utf8;
           if (extract_all)
             remember_a_message (mlp, NULL, token.string, inner_context,
                                 &token.pos, NULL, token.comment);
@@ -1894,6 +2153,7 @@ extract_parenthesized (message_list_ty *mlp,
                                      inner_context,
                                      token.pos.file_name, token.pos.line_number,
                                      token.comment);
+          xgettext_current_source_encoding = xgettext_global_source_encoding;
           drop_reference (token.comment);
           next_context_iter = null_context_list_iterator;
           selectorcall_context_iter = null_context_list_iterator;
@@ -1907,7 +2167,9 @@ extract_parenthesized (message_list_ty *mlp,
           continue;
 
         case xgettext_token_type_eof:
+          xgettext_current_source_encoding = po_charset_utf8;
           arglist_parser_done (argparser, arg);
+          xgettext_current_source_encoding = xgettext_global_source_encoding;
           return true;
 
         default:
