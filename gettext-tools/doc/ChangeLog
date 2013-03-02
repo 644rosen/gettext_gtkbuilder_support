@@ -2,6 +2,10 @@
 
 	* msgfmt.texi (Input file location): Output file is not PO.
 
+2013-02-06  Miguel Angel Arruga Vivas  <rosen644835@gmail.com>
+
+	* xgettext.texi (Keywords): Update keywords for Glade files.
+
 2013-01-30  Miguel Angel Arruga Vivas  <rosen644835@gmail.com>  (tiny change)
 
 	* msgen.texi (Output details): Fix link in '@opindex' pointing to

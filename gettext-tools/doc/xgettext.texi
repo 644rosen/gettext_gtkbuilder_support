@@ -243,8 +243,19 @@ For PHP: @code{_}, @code{gettext}, @code{dgettext:2}, @code{dcgettext:2},
 @code{ngettext:1,2}, @code{dngettext:2,3}, @code{dcngettext:2,3}.
 
 @item
-For Glade 1: @code{label}, @code{title}, @code{text}, @code{format},
-@code{copyright}, @code{comments}, @code{preview_text}, @code{tooltip}.
+For Glade 1 (only when first tag in XML tree is
+@code{<GTK-Interface>}): @code{label}, @code{title}, @code{text},
+@code{format}, @code{copyright}, @code{comments}, @code{preview_text},
+@code{tooltip}.
+
+@item
+For Glade 2 (only when first tag in XML tree is
+@code{<glade-interface>}): @code{property}, @code{atkproperty},
+@code{atkaction}.
+
+@item
+For GtkBuilder (only when first tag in XML tree is
+@code{<interface>}): @code{property}, @code{attribute}, @code{col}.
 @end itemize
 
 To disable the default keyword specifications, the option @samp{-k} or
