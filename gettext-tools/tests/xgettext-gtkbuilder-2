@@ -1,0 +1,123 @@
+#!/bin/sh
+
+# Test of GtkBuilder support.
+# Checks that the translatable="no" string is not extracted unless
+# the --extract-all option is passed.
+
+tmpfiles=""
+trap 'rm -fr $tmpfiles' 1 2 3 15
+
+: ${XGETTEXT=xgettext}
+${XGETTEXT} -o - xgettext-gtkbuilder-empty.ui 2>/dev/null 1>&2
+test $? = 0 || {
+  echo "Skipping test: xgettext was built without GtkBuilder support"
+  rm -fr $tmpfiles; exit 77
+}
+
+tmpfiles="$tmpfiles xg-gtk-2.ui"
+cat <<EOF > xg-gtk-2.ui
+<?xml version="1.0" encoding="UTF-8"?>
+<interface>
+  <!-- interface-requires gtk+ 3.0 -->
+  <object class="GtkAction" id="action">
+    <property name="label" translatable="yes" context="Action" comments="This comment is for the translators">This is the label of the action</property>
+    <property name="short_label" translatable="no" context="Action" comments="Comment">short</property>
+    <property name="tooltip" translatable="yes" context="Action">This is an action</property>
+  </object>
+</interface>
+EOF
+
+
+tmpfiles="$tmpfiles xg-gtk-2.pot"
+: ${XGETTEXT=xgettext}
+${XGETTEXT} --add-comments -o - xg-gtk-2.ui \
+    | grep -v 'POT-Creation-Date' > xg-gtk-2.pot
+test $? = 0 || { rm -fr $tmpfiles; exit 1; }
+
+tmpfiles="$tmpfiles xg-gtk-2.ok"
+cat <<\EOF > xg-gtk-2.ok
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: PACKAGE VERSION\n"
+"Report-Msgid-Bugs-To: \n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=CHARSET\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#. This comment is for the translators
+#: xg-gtk-2.ui:5
+msgctxt "Action"
+msgid "This is the label of the action"
+msgstr ""
+
+#: xg-gtk-2.ui:7
+msgctxt "Action"
+msgid "This is an action"
+msgstr ""
+EOF
+
+: ${DIFF=diff}
+${DIFF} xg-gtk-2.ok xg-gtk-2.pot
+result=$?
+test $result = 0 || { rm -fr $tmpfiles; exit $result; }
+
+tmpfiles="$tmpfiles xg-gtk-a.pot"
+${XGETTEXT} --add-comments --extract-all -o - xg-gtk-2.ui \
+| grep -v 'POT-Creation-Date' > xg-gtk-a.pot
+test $? = 0 || { rm -fr $tmpfiles; exit 1; }
+
+tmpfiles="$tmpfiles xg-gtk-a.ok"
+cat <<\EOF > xg-gtk-a.ok
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: PACKAGE VERSION\n"
+"Report-Msgid-Bugs-To: \n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=CHARSET\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#. interface-requires gtk+ 3.0
+#. This comment is for the translators
+#: xg-gtk-2.ui:5
+msgctxt "Action"
+msgid "This is the label of the action"
+msgstr ""
+
+#. Comment
+#: xg-gtk-2.ui:6
+msgctxt "Action"
+msgid "short"
+msgstr ""
+
+#: xg-gtk-2.ui:7
+msgctxt "Action"
+msgid "This is an action"
+msgstr ""
+EOF
+
+${DIFF} xg-gtk-a.ok xg-gtk-a.pot
+result=$?
+
+rm -fr $tmpfiles
+
+exit $result

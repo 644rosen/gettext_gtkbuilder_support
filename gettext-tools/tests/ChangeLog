@@ -1,3 +1,13 @@
+2013-01-28  Miguel Angel Arruga Vivas  <rosen644835@gmail.com>
+
+	Tests for GtkBuilder support.
+	* Makefile.am (TESTS): Added new tests xgettext-gtkbuilder{1,2,3}.
+	(EXTRA_DIST): Added file 'xgettext-gtkbuilder-empty.ui'.
+	* xgettext-gtkbuilder-empty.ui: New file for testing.
+	* xgettext-gtkbuilder-1: New test.
+	* xgettext-gtkbuilder-2: Likewise.
+	* xgettext-gtkbuilder-3: Likewise.
+
 2013-03-03  Miguel Ángel Arruga Vivas  <rosen644835@gmail.com>
 
 	Augment Glade2 testing.
