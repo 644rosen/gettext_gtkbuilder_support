@@ -1,3 +1,41 @@
+2013-02-06  Miguel Angel Arruga Vivas  <rosen644385@gmail.com>
+
+	GtkBuilder support in xgettext.
+	* x-glade.h (EXTENSIONS_GLADE): Add GtkBuilder "ui" extension.
+	* x-glade.c (tags): New hash table.
+	(clear_tags): New function.
+	(init_keywords): Removed. Contents used for 'init_glade1_tags'.
+	(init_tags): New function.
+	(init_glade1_tags): Likewise.
+	(init_glade2_tags): Likewise.
+	(init_gtkbuilder_tags): Likewise.
+	(is_tag): Likewise.
+	(element_state): New field 'extracted_context'.
+	(stack_depth): Moved next to stack definitions.
+	(se_handler): New typedef for function pointer.
+	(do_start_element): New function pointer.
+	(shapes_handler): New typedef for function pointer.
+	(get_shapes): New function pointer.
+	(DONE_ARGNUM): New constant, used in store_message.
+	(MSGCTXT_ARGNUM): Likewise.
+	(MSGID_ARGNUM): Moved to use it in store_message.
+	(store_message): New function. Code from 'end_element_handler'.
+	(start_element_handler): Added call to 'check_file_type' at level 0.
+	Checks tag name with 'is_tag'.
+	Changed old specific code with a call to 'do_start_element'.
+	(end_element_handler): Call 'store_message' instead use
+	'arglist_parser'.
+	(get_glade_shapes): Never extract context.
+	(glade_start_element): New function. It does not anything.
+	(get_glade2_shapes): New function. Code from old get_glade_shapes.
+	(glade2_start_element): New function. Code from old
+	'start_element_handler' for Glade2.
+	(get_gtkbuilder_shapes): New function.
+	(gtkbuilder_start_element): New function. Code adapted from old
+	'start_element_handler' for GtkBuilder parsing.
+	(check_file_type): New function.
+	(do_extract_glade): Remove call to init_keywords.
+
 2013-02-06  Miguel Angel Arruga Vivas  <rosen644385@gmail.com>  (tiny change)
 
 	Add guard to x-glade.h

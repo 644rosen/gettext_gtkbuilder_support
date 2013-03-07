@@ -52,8 +52,12 @@
 #define _(s) gettext(s)
 
 
-/* glade is an XML based format.  Some example files are contained in
-   libglade-0.16.  */
+/* glade1 was an XML based format.  Some example files are contained in
+   tests (inside of xgettext-glade-1) and in libglade1 releases.
+   glade2 had also an XML based format.  Some example files are contained
+   in tests (i.e. inside of xgettext-glade-3).
+   GtkBuilder is an XML based format.  Some example files are contained
+   in tests (i.e. inside of xgettext-gtkbuilder-3).  */
 
 
 /* ====================== Keyword set customization.  ====================== */
@@ -86,27 +90,78 @@ x_glade_keyword (const char *name)
     }
 }
 
-/* Finish initializing the keywords hash table.
-   Called after argument processing, before each file is processed.  */
+static hash_table tags;
+
 static void
-init_keywords ()
+clear_tags ()
 {
-  if (default_keywords)
+  if (tags.table != NULL)
     {
-      /* When adding new keywords here, also update the documentation in
-         xgettext.texi!  */
-      x_glade_keyword ("label");
-      x_glade_keyword ("title");
-      x_glade_keyword ("text");
-      x_glade_keyword ("format");
-      x_glade_keyword ("copyright");
-      x_glade_keyword ("comments");
-      x_glade_keyword ("preview_text");
-      x_glade_keyword ("tooltip");
-      default_keywords = false;
+      hash_destroy (&tags);
+      tags.table = NULL;
     }
 }
 
+static void
+init_tags (const char **tags_array)
+{
+  clear_tags ();
+  if (default_keywords)
+    {
+      const char **act;
+
+      hash_init (&tags, 15);
+      for (act = tags_array; *act != NULL; act++)
+        hash_insert_entry (&tags, *act, strlen (*act), NULL);
+    }
+}
+
+static void
+init_glade1_tags ()
+{
+  /* When adding new keywords here, also update the documentation in
+     xgettext.texi!  */
+  static const char *tags_array[] = {
+    "label", "title", "text", "format", "copyright", "comments",
+    "preview_text", "tooltip", NULL
+  };
+  init_tags (tags_array);
+}
+
+static void
+init_glade2_tags ()
+{
+  /* When adding new keywords here, also update the documentation in
+     xgettext.texi!  */
+  static const char *tags_array[] = {
+    "property", "atkproperty", "atkaction", NULL
+  };
+  init_tags (tags_array);
+}
+
+static void
+init_gtkbuilder_tags ()
+{
+  /* When adding new keywords here, also update the documentation in
+     xgettext.texi!  */
+  static const char *tags_array[] = {
+    "property", "attribute", "col", NULL
+  };
+  init_tags (tags_array);
+}
+
+/* Name must be not-NULL.  */
+static bool
+is_tag (const char *name)
+{
+  void *hash_result;
+  bool found = false;
+  if (keywords.table != NULL)
+    found = hash_find_entry (&keywords, name, strlen (name), &hash_result) == 0;
+  if (default_keywords && (tags.table != NULL))
+    found = hash_find_entry (&tags, name, strlen (name), &hash_result) == 0;
+  return found;
+}
 
 /* ======================= Different libexpat ABIs.  ======================= */
 
@@ -386,6 +441,7 @@ struct element_state
 {
   bool extract_string;
   bool extract_context;
+  char *extracted_context;
   char *extracted_comment;
   int lineno;
   char *buffer;
@@ -394,6 +450,23 @@ struct element_state
 };
 static struct element_state *stack;
 static size_t stack_size;
+static size_t stack_depth;
+
+/* Checks that name is the first tag of a GtkBuilder, a
+   Glade1 file or a Glade2 file. Default is Glade1.  */
+static void check_file_type (const char *name);
+
+/* Stores the information from attributes for their later use.  */
+typedef void (*se_handler) (struct element_state *p, const char *name,
+                            const char **attributes);
+static se_handler do_start_element;
+
+/* Stores the character data passed.  */
+typedef const struct callshapes * (*shapes_handler) (const char *tag,
+                                                     bool extract_context);
+static shapes_handler get_shapes;
+
+/* =========================== Implementation.  =========================== */
 
 /* Ensures stack_size >= size.  */
 static void
@@ -410,7 +483,48 @@ ensure_stack_size (size_t size)
     }
 }
 
-static size_t stack_depth;
+/* NOTE: We do not check argtotal.  */
+#define DONE_ARGNUM 0
+/* Used for Glade2 context extraction.  */
+#define MSGID_ARGNUM 1
+/* Used for GtkBuilder context extraction.  */
+#define MSGCTXT_ARGNUM 2
+
+/* Stores the message extracted.
+   P: p->buffer must not be NULL. It will be NULL after this call.
+      p->extracted context will be NULL after this call.
+   SHAPES: Create the arglist_parser with this properties.  */
+static void
+store_message (struct element_state *p, const struct callshapes *shapes)
+{
+  /* Create specific parser.  */
+  struct arglist_parser *ap = arglist_parser_alloc (mlp, shapes);
+
+  /* Store the extracted string.  */
+  arglist_parser_remember (ap, MSGID_ARGNUM, p->buffer,
+                           null_context, logical_file_name,
+                           p->lineno, savable_comment);
+  p->buffer = NULL;
+
+  /* Store the extracted context, if any.  */
+  if (p->extracted_context != NULL)
+    {
+      arglist_parser_remember (ap, MSGCTXT_ARGNUM, p->extracted_context,
+                               null_context, logical_file_name,
+                               p->lineno, savable_comment);
+      p->extracted_context = NULL;
+    }
+
+  /* Store the extracted comment, if any.  */
+  if (p->extracted_comment != NULL)
+    string_list_append (&ap->alternative[0].xcomments,
+                        p->extracted_comment);
+
+  /* Call remember_a_message.
+     NOTE: ap->alternative[0].argtotal should be 0.  */
+  arglist_parser_done (ap, DONE_ARGNUM);
+}
+
 
 /* Callback called when <element> is seen.  */
 static void
@@ -418,7 +532,9 @@ start_element_handler (void *userData, const char *name,
                        const char **attributes)
 {
   struct element_state *p;
-  void *hash_result;
+
+  if (stack_depth == 0)
+    check_file_type (name);
 
   /* Increase stack depth.  */
   stack_depth++;
@@ -431,101 +547,21 @@ start_element_handler (void *userData, const char *name,
   p->extract_string = extract_all;
   p->extract_context = false;
   p->extracted_comment = NULL;
-  /* In Glade 1, a few specific elements are translatable.  */
-  if (!p->extract_string)
-    p->extract_string =
-      (hash_find_entry (&keywords, name, strlen (name), &hash_result) == 0);
-  /* In Glade 2, all <property> and <atkproperty> elements are translatable
-     that have the attribute translatable="yes".
-     See <http://library.gnome.org/devel/libglade/unstable/libglade-dtd.html>.
-     The translator comment is found in the attribute comments="...".
-     See <http://live.gnome.org/TranslationProject/DevGuidelines/Use comments>.
-   */
-  if (!p->extract_string
-      && (strcmp (name, "property") == 0 || strcmp (name, "atkproperty") == 0))
-    {
-      bool has_translatable = false;
-      bool has_context = false; // Default is 'no'
-      const char *extracted_comment = NULL;
-      const char **attp = attributes;
-      while (*attp != NULL)
-        {
-          if (strcmp (attp[0], "translatable") == 0)
-            has_translatable = (strcmp (attp[1], "yes") == 0);
-          else if (strcmp (attp[0], "comments") == 0)
-            extracted_comment = attp[1];
-          else if (strcmp (attp[0], "context") == 0)
-            has_context = (strcmp (attp[1], "yes") == 0);
-          attp += 2;
-        }
-      p->extract_string = has_translatable;
-      p->extract_context = has_context;
-      p->extracted_comment =
-        (has_translatable && extracted_comment != NULL
-         ? xstrdup (extracted_comment)
-         : NULL);
-    }
-  if (!p->extract_string
-      && strcmp (name, "atkaction") == 0)
-    {
-      const char **attp = attributes;
-      while (*attp != NULL)
-        {
-          if (strcmp (attp[0], "description") == 0)
-            {
-              if (strcmp (attp[1], "") != 0)
-                {
-                  lex_pos_ty pos;
-
-                  pos.file_name = logical_file_name;
-                  pos.line_number = XML_GetCurrentLineNumber (parser);
-
-                  remember_a_message (mlp, NULL, xstrdup (attp[1]),
-                                      null_context, &pos,
-                                      NULL, savable_comment);
-                }
-              break;
-            }
-          attp += 2;
-        }
-    }
+  p->extracted_context = NULL;
   p->lineno = XML_GetCurrentLineNumber (parser);
   p->buffer = NULL;
   p->bufmax = 0;
   p->buflen = 0;
+
+  /* The correct tags have been already inserted. */
+  if (!p->extract_string)
+    p->extract_string = is_tag (name);
+
+  /* Do actual work.  */
+  do_start_element (p, name, attributes);
+
   if (!p->extract_string)
     savable_comment_reset ();
-}
-
-/* Used for Glade2 context extraction.  */
-#define MSGID_ARGNUM 1
-
-/* Returns a pointer to a static callshapes prepared to extract or not
-   glib syntax strings.
-   TAG: Keyword to set. Must not be NULL.
-   EXTRACT_CONTEXT: true for strings with glib msgctxt syntax
-   (Glade2 with attribute context="yes").  */
-static const struct callshapes *
-get_glade_shapes (const char *tag, bool extract_context)
-{
-  static struct callshapes glade_shapes;
-  static bool initialized = false;
-  if (!initialized)
-    {
-      glade_shapes.nshapes = 1;
-      glade_shapes.shapes[0].argnum1 = MSGID_ARGNUM;
-      glade_shapes.shapes[0].argnum2 = 0;
-      glade_shapes.shapes[0].argnumc = 0;
-      glade_shapes.shapes[0].argnum2_glib_context = false;
-      glade_shapes.shapes[0].argtotal = 1;
-      string_list_init (&glade_shapes.shapes[0].xcomments);
-      initialized = true;
-    }
-  glade_shapes.keyword = tag;
-  glade_shapes.keyword_len = strlen (tag) - 1; /* Not-NUL terminated.  */
-  glade_shapes.shapes[0].argnum1_glib_context = extract_context;
-
-  return &glade_shapes;
 }
 
 
@@ -545,24 +581,15 @@ end_element_handler (void *userData, const char *name)
             p->buffer = (char *) xrealloc (p->buffer, p->buflen + 1);
           p->buffer[p->buflen] = '\0';
 
-          /* Create the arglist_parser for glade.  */
-          struct arglist_parser * ap =
-            arglist_parser_alloc (mlp, get_glade_shapes (name,
-                                                         p->extract_context));
-          arglist_parser_remember (ap, MSGID_ARGNUM, p->buffer,
-                                   null_context, logical_file_name,
-                                   p->lineno, savable_comment);
-          if (p->extracted_comment != NULL)
-            string_list_append (&ap->alternative[0].xcomments,
-                                p->extracted_comment);
-          arglist_parser_done (ap, MSGID_ARGNUM);
-          p->buffer = NULL;
+          store_message (p, get_shapes (name, p->extract_context));
         }
     }
 
   /* Free memory for this stack level.  */
   if (p->extracted_comment != NULL)
     free (p->extracted_comment);
+  if (p->extracted_context != NULL)
+    free (p->extracted_context);
   if (p->buffer != NULL)
     free (p->buffer);
 
@@ -622,6 +649,233 @@ comment_handler (void *userData, const char *data)
   free (copy);
 }
 
+/* -----------------------------------------------------------------
+                          Glade 1 and default.
+   -----------------------------------------------------------------  */
+
+/* Returns a pointer to a static callshapes prepared to extract only
+   msgid and comments.
+   TAG: Keyword to set. Must not be NULL.
+   EXTRACT_CONTEXT: Not used.  */
+static const struct callshapes *
+get_glade_shapes (const char *tag, bool extract_context)
+{
+  static struct callshapes glade_shapes;
+  static bool initialized = false;
+  if (!initialized)
+    {
+      glade_shapes.nshapes = 1;
+      glade_shapes.shapes[0].argnum1 = MSGID_ARGNUM;
+      glade_shapes.shapes[0].argnum2 = 0;
+      glade_shapes.shapes[0].argnumc = 0;
+      glade_shapes.shapes[0].argnum1_glib_context = false;
+      glade_shapes.shapes[0].argnum2_glib_context = false;
+      glade_shapes.shapes[0].argtotal = 0;
+      string_list_init (&glade_shapes.shapes[0].xcomments);
+      initialized = true;
+    }
+  glade_shapes.keyword = tag;
+  glade_shapes.keyword_len = strlen (tag) - 1; /* Not-NUL terminated.  */
+
+  return &glade_shapes;
+}
+
+static void
+glade_start_element (struct element_state *p, const char *name,
+                     const char **attributes)
+{
+}
+
+/* -----------------------------------------------------------------
+                                Glade 2.
+   -----------------------------------------------------------------  */
+
+/* Returns a pointer to a static callshapes prepared to extract or not
+   glib syntax strings.
+   TAG: Keyword to set. Must not be NULL.
+   EXTRACT_CONTEXT: true for strings with glib msgctxt syntax
+   (Glade2 with attribute context="yes").  */
+static const struct callshapes *
+get_glade2_shapes (const char *tag, bool extract_context)
+{
+  static struct callshapes glade_shapes;
+  static bool initialized = false;
+  if (!initialized)
+    {
+      glade_shapes.nshapes = 1;
+      glade_shapes.shapes[0].argnum1 = MSGID_ARGNUM;
+      glade_shapes.shapes[0].argnum2 = 0;
+      glade_shapes.shapes[0].argnumc = 0;
+      glade_shapes.shapes[0].argnum2_glib_context = false;
+      glade_shapes.shapes[0].argtotal = 0;
+      string_list_init (&glade_shapes.shapes[0].xcomments);
+      initialized = true;
+    }
+  glade_shapes.keyword = tag;
+  glade_shapes.keyword_len = strlen (tag) - 1; /* Not-NUL terminated.  */
+  glade_shapes.shapes[0].argnum1_glib_context = extract_context;
+
+  return &glade_shapes;
+}
+
+static void
+glade2_start_element (struct element_state *p, const char *name,
+                      const char **attributes)
+{
+  /* In Glade 2, all <property> and <atkproperty> elements are translatable
+     that have the attribute translatable="yes".
+     See <http://library.gnome.org/devel/libglade/unstable/libglade-dtd.html>.
+     The translator comment is found in the attribute comments="...".
+     See <http://live.gnome.org/TranslationProject/DevGuidelines/Use comments>.
+  */
+  if (p->extract_string)
+    {
+      bool has_translatable = false;
+      bool has_context = false;
+      bool is_atkaction = (strcmp (name, "atkaction") == 0);
+      const char *extracted_comment = NULL;
+      const char **attp = attributes;
+      while (*attp != NULL)
+        {
+          if (strcmp (attp[0], "translatable") == 0)
+            has_translatable = (strcmp (attp[1], "yes") == 0);
+          else if (strcmp (attp[0], "comments") == 0)
+            extracted_comment = attp[1];
+          else if (strcmp (attp[0], "context") == 0)
+            has_context = (strcmp (attp[1], "yes") == 0);
+          else if (is_atkaction && (strcmp (attp[0], "description") == 0))
+            {
+              lex_pos_ty pos;
+
+              pos.file_name = logical_file_name;
+              pos.line_number = XML_GetCurrentLineNumber (parser);
+
+              remember_a_message (mlp, NULL, xstrdup (attp[1]),
+                                  null_context, &pos,
+                                  NULL, savable_comment);
+              break;
+            }
+          attp += 2;
+        }
+      /* Atkaction content is not translatable, unless we are
+         extracting all strings.  */
+      if (is_atkaction)
+        p->extract_string = extract_all;
+      else
+        {
+          /* Changed to no when no translatable found unless we
+             are extracting all strings.  */
+          p->extract_string = has_translatable || extract_all;
+          p->extract_context = has_context;
+          if (p->extracted_comment != NULL)
+            free (p->extracted_comment);
+          p->extracted_comment =
+            (has_translatable && extracted_comment != NULL
+             ? xstrdup (extracted_comment)
+             : NULL);
+        }
+    }
+}
+
+
+/* -----------------------------------------------------------------
+                             GtkBuilder.
+   -----------------------------------------------------------------  */
+
+/* Returns a pointer to a static callshapes prepared to store
+   msgctxt and msgid.
+   TAG: Keyword to set. Must not be NULL.
+   HAS_CONTEXT: True if msgctxt is not NULL.  */
+static const struct callshapes *
+get_gtkbuilder_shapes (const char *tag, bool extract_context)
+{
+  static struct callshapes gtkbuilder_shapes;
+  static bool initialized = false;
+  if (!initialized)
+    {
+      gtkbuilder_shapes.nshapes = 1;
+      gtkbuilder_shapes.shapes[0].argnum1 = MSGID_ARGNUM;
+      gtkbuilder_shapes.shapes[0].argnum2 = 0;
+      gtkbuilder_shapes.shapes[0].argnum1_glib_context = false;
+      gtkbuilder_shapes.shapes[0].argnum2_glib_context = false;
+      gtkbuilder_shapes.shapes[0].argtotal = 0;
+      string_list_init (&gtkbuilder_shapes.shapes[0].xcomments);
+      initialized = true;
+    }
+  gtkbuilder_shapes.keyword = tag;
+  gtkbuilder_shapes.keyword_len = strlen (tag) - 1; /* Not-NUL terminated.  */
+  gtkbuilder_shapes.shapes[0].argnumc = extract_context ? MSGCTXT_ARGNUM : 0;
+  return &gtkbuilder_shapes;
+}
+
+static void
+gtkbuilder_start_element (struct element_state *p, const char *name,
+                          const char **attributes)
+{
+  const char **attp = attributes;
+  bool has_translatable = false;
+  const char *extracted_comment = NULL;
+  const char *extracted_context = NULL;
+  /* Even when extract_all is true we must look for coments and context.  */
+  while (*attp != NULL)
+    {
+      if (strcmp (attp[0], "translatable") == 0)
+        has_translatable = (strcmp (attp[1], "yes") == 0);
+      else if (strcmp (attp[0], "comments") == 0)
+        extracted_comment = attp[1];
+      else if (strcmp (attp[0], "context") == 0)
+        extracted_context = attp[1];
+      attp += 2;
+    }
+
+  if (p->extract_string)
+    p->extract_string = has_translatable || extract_all;
+
+  if (p->extract_string)
+    {
+      p->extracted_comment =
+        (extracted_comment != NULL
+         ? xstrdup (extracted_comment)
+         : NULL);
+      p->extract_context = (extracted_context != NULL);
+      p->extracted_context =
+        (p->extract_context
+         ? xstrdup (extracted_context)
+         : NULL);
+    }
+}
+
+
+/* Checks the first tag of the XML tree to set the hook functions.
+   NAME: Glade1 -> "GTK-Interface".
+         Glade2 -> "glade-interface".
+         GtkBuilder -> "interface".  */
+static void
+check_file_type (const char *name)
+{
+  if (strcmp (name, "glade-interface") == 0)
+    {
+      do_start_element = glade2_start_element;
+      get_shapes = get_glade2_shapes;
+      init_glade2_tags ();
+    }
+  else if (strcmp (name, "interface") == 0)
+    {
+      do_start_element = gtkbuilder_start_element;
+      get_shapes = get_gtkbuilder_shapes;
+      init_gtkbuilder_tags ();
+    }
+  else
+    {
+      if (strcmp (name, "GTK-Interface") == 0)
+        init_glade1_tags ();
+      else
+        clear_tags ();
+      do_start_element = glade_start_element;
+      get_shapes = get_glade_shapes;
+    }
+}
+
 
 static void
 do_extract_glade (FILE *fp,
@@ -634,8 +888,6 @@ do_extract_glade (FILE *fp,
   xgettext_current_source_encoding = po_charset_utf8;
 
   logical_file_name = xstrdup (logical_filename);
-
-  init_keywords ();
 
   parser = XML_ParserCreate (NULL);
   if (parser == NULL)
