@@ -1,5 +1,15 @@
 2013-03-07  Miguel Angel Arruga Vivas  <rosen644385@gmail.com>
 
+	GSettings schemas support in xgettext.
+	* x-gsettings.h: New file.
+	* x-gsettings.c: Likewise. Code from x-glade.c.
+	* xgettext.c (main): Add x_gsettings_* calls. Also add "GSettings"
+	to help comments.
+	(language_to_extractor): Add SCANNERS_GSETTINGS.
+	(extension_to_language): Add EXTENSIONS_GSETTINGS.
+
+2013-03-07  Miguel Angel Arruga Vivas  <rosen644385@gmail.com>
+
 	Look for a larger extension string when file ends in ".xml".
 	* xgettext.c (main): Deeper extension search when "xml" is found.
 

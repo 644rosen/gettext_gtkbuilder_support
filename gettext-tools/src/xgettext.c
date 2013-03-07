@@ -92,6 +92,7 @@
 #include "x-stringtable.h"
 #include "x-rst.h"
 #include "x-glade.h"
+#include "x-gsettings.h"
 
 
 /* If nonzero add all comments immediately preceding one of the keywords. */
@@ -355,6 +356,7 @@ main (int argc, char *argv[])
         x_perl_extract_all ();
         x_php_extract_all ();
         x_glade_extract_all ();
+        x_gsettings_extract_all ();
         break;
 
       case 'c':
@@ -432,6 +434,7 @@ main (int argc, char *argv[])
         x_perl_keyword (optarg);
         x_php_keyword (optarg);
         x_glade_keyword (optarg);
+        x_gsettings_keyword (optarg);
         if (optarg == NULL)
           no_default_keywords = true;
         else
@@ -876,7 +879,8 @@ Choice of input file language:\n"));
                                 (C, C++, ObjectiveC, PO, Shell, Python, Lisp,\n\
                                 EmacsLisp, librep, Scheme, Smalltalk, Java,\n\
                                 JavaProperties, C#, awk, YCP, Tcl, Perl, PHP,\n\
-                                GCC-source, NXStringTable, RST, Glade)\n"));
+                                GCC-source, NXStringTable, RST, Glade,\n\
+                                GSettings)\n"));
       printf (_("\
   -C, --c++                   shorthand for --language=C++\n"));
       printf (_("\
@@ -886,7 +890,7 @@ By default the language is guessed depending on the input file name extension.\n
 Input file interpretation:\n"));
       printf (_("\
       --from-code=NAME        encoding of input files\n\
-                                (except for Python, Tcl, Glade)\n"));
+                                (except for Python, Tcl, Glade, GSettings)\n"));
       printf (_("\
 By default the input files are assumed to be in ASCII.\n"));
       printf ("\n");
@@ -909,14 +913,16 @@ Language specific options:\n"));
       printf (_("\
                                 (only languages C, C++, ObjectiveC, Shell,\n\
                                 Python, Lisp, EmacsLisp, librep, Scheme, Java,\n\
-                                C#, awk, Tcl, Perl, PHP, GCC-source, Glade)\n"));
+                                C#, awk, Tcl, Perl, PHP, GCC-source, Glade,\n\
+                                GSettings)\n"));
       printf (_("\
   -kWORD, --keyword=WORD      look for WORD as an additional keyword\n\
   -k, --keyword               do not to use default keywords\n"));
       printf (_("\
                                 (only languages C, C++, ObjectiveC, Shell,\n\
                                 Python, Lisp, EmacsLisp, librep, Scheme, Java,\n\
-                                C#, awk, Tcl, Perl, PHP, GCC-source, Glade)\n"));
+                                C#, awk, Tcl, Perl, PHP, GCC-source, Glade,\n\
+                                GSettings)\n"));
       printf (_("\
       --flag=WORD:ARG:FLAG    additional flag for strings inside the argument\n\
                               number ARG of keyword WORD\n"));
@@ -3204,6 +3210,7 @@ language_to_extractor (const char *name)
     SCANNERS_STRINGTABLE
     SCANNERS_RST
     SCANNERS_GLADE
+    SCANNERS_GSETTINGS
     /* Here may follow more languages and their scanners: pike, etc...
        Make sure new scanners honor the --exclude-file option.  */
   };
@@ -3287,6 +3294,7 @@ extension_to_language (const char *extension)
     EXTENSIONS_STRINGTABLE
     EXTENSIONS_RST
     EXTENSIONS_GLADE
+    EXTENSIONS_GSETTINGS
     /* Here may follow more file extensions... */
   };
 
