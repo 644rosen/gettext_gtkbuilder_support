@@ -1,3 +1,8 @@
+2013-03-07  Miguel Angel Arruga Vivas  <rosen644385@gmail.com>
+
+	Look for a larger extension string when file ends in ".xml".
+	* xgettext.c (main): Deeper extension search when "xml" is found.
+
 2013-03-02  Miguel Angel Arruga Vivas  <rosen644385@gmail.com>
 
 	Extract libexpat compatibility layer.

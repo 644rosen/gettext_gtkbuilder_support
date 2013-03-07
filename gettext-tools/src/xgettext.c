@@ -762,6 +762,25 @@ This version was built without iconv()."),
           else
             extension = "";
 
+          /* xml could be part of a longer file ending.
+             FIXME: This is a dirty hack.  */
+          if (strcmp (extension, "xml") == 0)
+            {
+              char *tmp_extension;
+              char *tmp_reduced = xstrdup (reduced);
+              tmp_reduced[strlen (tmp_reduced) - 4] = '\0';
+              tmp_extension = strrchr (tmp_reduced, '.');
+              if (tmp_extension != NULL)
+                {
+                  char *full_extension = reduced + (tmp_extension
+                                                    - tmp_reduced
+                                                    + 1); /* The dot.  */
+                  if (extension_to_language (full_extension) != NULL)
+                    extension = full_extension;
+                }
+              free (tmp_reduced);
+            }
+
           /* Derive the language from the extension, and the extractor
              function from the language.  */
           language = extension_to_language (extension);
