@@ -15,6 +15,8 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
+#ifndef X_GLADE_H
+#define X_GLADE_H
 
 #include <stdio.h>
 
@@ -50,3 +52,5 @@ extern void x_glade_keyword (const char *name);
 #ifdef __cplusplus
 }
 #endif
+
+#endif  /*  X_GLADE_H  */

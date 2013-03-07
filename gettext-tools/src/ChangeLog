@@ -1,3 +1,8 @@
+2013-02-06  Miguel Angel Arruga Vivas  <rosen644385@gmail.com>  (tiny change)
+
+	Add guard to x-glade.h
+	* x-glade.h (X_GLADE_H): Ifndef guard.
+
 2013-01-31  Miguel Angel Arruga Vivas  <rosen644835@gmail.com>
 
 	* x-glade.c (element_state): New field extract_context.
