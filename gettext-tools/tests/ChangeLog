@@ -1,3 +1,12 @@
+2013-03-20  Miguel Angel Arruga Vivas  <rosen644835@gmail.com>
+
+	Tests for GtkBuilder support.
+	* Makefile.am (TESTS): New tests xgettext-gtkbuilder{1,2}.
+	(EXTRA_DIST): Added file 'xgettext-gtkbuilder-empty.ui'.
+	* xgettext-gtkbuilder-empty.ui: New file for testing.
+	* xgettext-gtkbuilder-1: New test.
+	* xgettext-gtkbuilder-2: Likewise.
+
 2013-03-03  Miguel Angel Arruga Vivas  <rosen644835@gmail.com>
 
 	Add a test case for atkproperty tag in Glade2 files.
