@@ -441,8 +441,7 @@ start_element_handler (void *userData, const char *name,
      The translator comment is found in the attribute comments="...".
      See <http://live.gnome.org/TranslationProject/DevGuidelines/Use comments>.
    */
-  if (!p->extract_string
-      && (strcmp (name, "property") == 0 || strcmp (name, "atkproperty") == 0))
+  if (strcmp (name, "property") == 0 || strcmp (name, "atkproperty") == 0)
     {
       bool has_translatable = false;
       bool has_context = false;
@@ -458,15 +457,14 @@ start_element_handler (void *userData, const char *name,
             has_context = (strcmp (attp[1], "yes") == 0);
           attp += 2;
         }
-      p->extract_string = has_translatable;
+      p->extract_string = has_translatable || extract_all;
       p->extract_context = has_context;
       p->extracted_comment =
         (has_translatable && extracted_comment != NULL
          ? xstrdup (extracted_comment)
          : NULL);
     }
-  if (!p->extract_string
-      && strcmp (name, "atkaction") == 0)
+  if (strcmp (name, "atkaction") == 0)
     {
       const char **attp = attributes;
       while (*attp != NULL)

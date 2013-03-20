@@ -1,3 +1,9 @@
+2013-03-20  Miguel Ángel Arruga Vivas  <rosen644835@gmail.com>
+
+	Fix --extract-all option support in Glade2 files.
+	* x-glade.c (start_element_handler): Add condition to extract
+	always context and comments attributes in Glade2 tags.
+
 2013-03-15  Miguel Ángel Arruga Vivas  <rosen644835@gmail.com>
             Daiki Ueno  <ueno@gnu.org>
 
