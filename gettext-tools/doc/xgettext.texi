@@ -73,7 +73,7 @@ are @code{C}, @code{C++}, @code{ObjectiveC}, @code{PO}, @code{Shell},
 @code{Python}, @code{Lisp}, @code{EmacsLisp}, @code{librep}, @code{Scheme},
 @code{Smalltalk}, @code{Java}, @code{JavaProperties}, @code{C#}, @code{awk},
 @code{YCP}, @code{Tcl}, @code{Perl}, @code{PHP}, @code{GCC-source},
-@code{NXStringTable}, @code{RST}, @code{Glade}.
+@code{NXStringTable}, @code{RST}, @code{Glade}, @code{GtkBuilder}.
 
 @item -C
 @itemx --c++
@@ -93,8 +93,9 @@ extension.
 @opindex --from-code@r{, @code{xgettext} option}
 Specifies the encoding of the input files.  This option is needed only
 if some untranslated message strings or their corresponding comments
-contain non-ASCII characters.  Note that Tcl and Glade input files are
-always assumed to be in UTF-8, regardless of this option.
+contain non-ASCII characters.  Note that Tcl, Glade and GtkBuilder
+input files are always assumed to be in UTF-8, regardless of this
+option.
 
 @end table
 
@@ -137,7 +138,7 @@ Extract all strings.
 
 This option has an effect with most languages, namely C, C++, ObjectiveC,
 Shell, Python, Lisp, EmacsLisp, librep, Java, C#, awk, Tcl, Perl, PHP,
-GCC-source, Glade.
+GCC-source, Glade, GtkBuilder.
 
 @item -k[@var{keywordspec}]
 @itemx --keyword[=@var{keywordspec}]

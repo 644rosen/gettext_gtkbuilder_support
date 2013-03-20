@@ -1,3 +1,11 @@
+2013-03-20  Miguel Angel Arruga Vivas  <rosen644835@gmail.com>
+
+	* xgettext.texi (Choice of input file language): Add GtkBuilder
+	language.
+	(Input file interpretation): Add GtkBuilder language.
+	(Language specific options): Add GtkBuilder language in
+	--extract-all option.
+
 2013-03-12  Andreas Stricker  <astricker@futurelab.ch>  (tiny change)
 
 	* msgfmt.texi (PO Format): A note about the header entry
