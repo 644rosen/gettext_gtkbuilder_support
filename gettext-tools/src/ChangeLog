@@ -1,5 +1,23 @@
 2013-03-20  Miguel Ángel Arruga Vivas  <rosen644835@gmail.com>
 
+	Add GtkBuilder support for xgettext.
+	Reported at <https://savannah.gnu.org/bugs/?29216>
+	* x-glade.h (EXTENSIONS_GLADE): Add GtkBuilder extension 'ui'.
+	(SCANNERS_GLADE): Add GtkBuilder language with
+	'extract_gtkbuilder'.
+	(extract_gtkbuilder): New function.
+	* x-glade.c (glade2_context): New static variable.
+	(element_state): New field extracted_context.
+	(start_element_handler): Check glade2_context for msgctxt
+	extraction and tag selection.
+	(end_element_handler): Check glade2_context for msgctxt
+	extraction and free p->extracted_context.
+	(common_extract): New function. Code from old extract_glade.
+	(extract_glade, extract_gtkbuilder): Call common_extract.
+	* xgettext.c (main): Add GtkBuilder option to help strings.
+
+2013-03-20  Miguel Ángel Arruga Vivas  <rosen644835@gmail.com>
+
 	Fix --extract-all option support in Glade2 files.
 	* x-glade.c (start_element_handler): Add condition to extract
 	always context and comments attributes in Glade2 tags.

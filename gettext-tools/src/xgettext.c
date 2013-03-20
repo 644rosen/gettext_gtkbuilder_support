@@ -857,7 +857,8 @@ Choice of input file language:\n"));
                                 (C, C++, ObjectiveC, PO, Shell, Python, Lisp,\n\
                                 EmacsLisp, librep, Scheme, Smalltalk, Java,\n\
                                 JavaProperties, C#, awk, YCP, Tcl, Perl, PHP,\n\
-                                GCC-source, NXStringTable, RST, Glade)\n"));
+                                GCC-source, NXStringTable, RST, Glade,\n\
+                                GtkBuilder)\n"));
       printf (_("\
   -C, --c++                   shorthand for --language=C++\n"));
       printf (_("\
@@ -867,7 +868,8 @@ By default the language is guessed depending on the input file name extension.\n
 Input file interpretation:\n"));
       printf (_("\
       --from-code=NAME        encoding of input files\n\
-                                (except for Python, Tcl, Glade)\n"));
+                                (except for Python, Tcl, Glade and\n\
+                                GtkBuilder)\n"));
       printf (_("\
 By default the input files are assumed to be in ASCII.\n"));
       printf ("\n");
@@ -890,7 +892,8 @@ Language specific options:\n"));
       printf (_("\
                                 (only languages C, C++, ObjectiveC, Shell,\n\
                                 Python, Lisp, EmacsLisp, librep, Scheme, Java,\n\
-                                C#, awk, Tcl, Perl, PHP, GCC-source, Glade)\n"));
+                                C#, awk, Tcl, Perl, PHP, GCC-source, Glade,\n\
+                                GtkBuilder)\n"));
       printf (_("\
   -kWORD, --keyword=WORD      look for WORD as an additional keyword\n\
   -k, --keyword               do not to use default keywords\n"));

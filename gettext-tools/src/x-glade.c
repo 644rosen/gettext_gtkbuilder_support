@@ -60,6 +60,8 @@
 
 /* If true extract all strings.  */
 static bool extract_all = false;
+/* If true, msgctxt will be extracted from msgid: |-separated string.  */
+static bool glade2_context;
 
 static hash_table keywords;
 static bool default_keywords = true;
@@ -387,6 +389,7 @@ struct element_state
   bool extract_string;
   bool extract_context;
   char *extracted_comment;
+  char *extracted_context;
   int lineno;
   char *buffer;
   size_t bufmax;
@@ -430,6 +433,7 @@ start_element_handler (void *userData, const char *name,
   p = &stack[stack_depth];
   p->extract_string = extract_all;
   p->extract_context = false;
+  p->extracted_context = NULL;
   p->extracted_comment = NULL;
   /* In Glade 1, a few specific elements are translatable.  */
   if (!p->extract_string)
@@ -441,11 +445,14 @@ start_element_handler (void *userData, const char *name,
      The translator comment is found in the attribute comments="...".
      See <http://live.gnome.org/TranslationProject/DevGuidelines/Use comments>.
    */
-  if (strcmp (name, "property") == 0 || strcmp (name, "atkproperty") == 0)
+  if (strcmp (name, "property") == 0 || strcmp (name, "atkproperty") == 0
+      /* We always search for translatable attribute in GtkBuilder files.  */
+      || !glade2_context)
     {
       bool has_translatable = false;
       bool has_context = false;
       const char *extracted_comment = NULL;
+      const char *extracted_context = NULL;
       const char **attp = attributes;
       while (*attp != NULL)
         {
@@ -454,17 +461,30 @@ start_element_handler (void *userData, const char *name,
           else if (strcmp (attp[0], "comments") == 0)
             extracted_comment = attp[1];
           else if (strcmp (attp[0], "context") == 0)
-            has_context = (strcmp (attp[1], "yes") == 0);
+            {
+              if (glade2_context)
+                has_context = (strcmp (attp[1], "yes") == 0);
+              else
+                extracted_context = attp[1];
+            }
           attp += 2;
         }
       p->extract_string = has_translatable || extract_all;
-      p->extract_context = has_context;
+      if (glade2_context)
+        p->extract_context = has_context;
+      else
+        {
+          p->extracted_context =
+            (has_translatable && extracted_context != NULL
+             ? xstrdup (extracted_context)
+             : NULL);
+        }
       p->extracted_comment =
         (has_translatable && extracted_comment != NULL
          ? xstrdup (extracted_comment)
          : NULL);
     }
-  if (strcmp (name, "atkaction") == 0)
+  if (glade2_context && strcmp (name, "atkaction") == 0)
     {
       const char **attp = attributes;
       while (*attp != NULL)
@@ -518,7 +538,7 @@ end_element_handler (void *userData, const char *name)
           pos.file_name = logical_file_name;
           pos.line_number = p->lineno;
 
-          if (p->extract_context)
+          if (glade2_context && p->extract_context)
             {
               char *separator = strchr (p->buffer, '|');
 
@@ -542,6 +562,11 @@ Missing context for the string extracted from '%s' element"),
             }
           else
             {
+              if (!glade2_context)
+                {
+                  msgctxt = p->extracted_context;
+                  p->extracted_context = NULL;
+                }
               msgid = p->buffer;
               p->buffer = NULL;
             }
@@ -556,6 +581,8 @@ Missing context for the string extracted from '%s' element"),
   /* Free memory for this stack level.  */
   if (p->extracted_comment != NULL)
     free (p->extracted_comment);
+  if (p->extracted_context != NULL)
+    free (p->extracted_context);
   if (p->buffer != NULL)
     free (p->buffer);
 
@@ -676,11 +703,10 @@ error while reading \"%s\""), real_filename);
 
 #endif
 
-void
-extract_glade (FILE *fp,
-               const char *real_filename, const char *logical_filename,
-               flag_context_list_table_ty *flag_table,
-               msgdomain_list_ty *mdlp)
+static void
+common_extract (FILE *fp, const char *file_type,
+                const char *real_filename, const char *logical_filename,
+                msgdomain_list_ty *mdlp)
 {
 #if DYNLOAD_LIBEXPAT || HAVE_LIBEXPAT
   if (LIBEXPAT_AVAILABLE ())
@@ -690,9 +716,30 @@ extract_glade (FILE *fp,
     {
       multiline_error (xstrdup (""),
                        xasprintf (_("\
-Language \"glade\" is not supported. %s relies on expat.\n\
+Language \"%s\" is not supported. %s relies on expat.\n\
 This version was built without expat.\n"),
+                                  file_type,
                                   basename (program_name)));
       exit (EXIT_FAILURE);
     }
+}
+
+void
+extract_glade (FILE *fp,
+               const char *real_filename, const char *logical_filename,
+               flag_context_list_table_ty *flag_table,
+               msgdomain_list_ty *mdlp)
+{
+  glade2_context = true;
+  common_extract (fp, "glade", real_filename, logical_filename, mdlp);
+}
+
+void
+extract_gtkbuilder (FILE *fp,
+                    const char *real_filename, const char *logical_filename,
+                    flag_context_list_table_ty *flag_table,
+                    msgdomain_list_ty *mdlp)
+{
+  glade2_context = false;
+  common_extract (fp, "gtkbuilder", real_filename, logical_filename, mdlp);
 }
